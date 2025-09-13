@@ -1,10 +1,11 @@
-import mysql.connector
+import pymysql
 
 def get_db_connection():
-    conn = mysql.connector.connect(
+    conn = pymysql.connect(
         host="localhost",
-        user="root",       # change to your MySQL username
-        password="Madhumit09*",   # change to your MySQL password
-        database="madhumitha"
+        user="root",
+        password="Madhumit09*",
+        database="madhumitha",
+       cursorclass=pymysql.cursors.DictCursor
     )
     return conn

@@ -67,59 +67,119 @@
 # if __name__ == "__main__":
 #     app.run(debug=True)
 
+# from flask import Flask, request, jsonify
+# from db import get_db_connection
+
+# app = Flask(__name__)
+
+# # Add Author
+# @app.route('/authors', methods=['POST'])
+# def add_author():
+#     data = request.get_json()
+#     conn = get_db_connection()
+#     cursor = conn.cursor()
+#     cursor.execute("INSERT INTO authors (name, country) VALUES (%s, %s)", 
+#                    (data['name'], data['country']))
+#     conn.commit()
+#     author_id = cursor.lastrowid
+#     cursor.close()
+#     conn.close()
+#     return jsonify({"message": "Author added", "author_id": author_id}), 201
+
+
+# # Add Book
+# @app.route('/books', methods=['POST'])
+# def add_book():
+#     data = request.get_json()
+#     conn = get_db_connection()
+#     cursor = conn.cursor()
+#     cursor.execute("INSERT INTO books (title, author_id) VALUES (%s, %s)", 
+#                    (data['title'], data['author_id']))
+#     conn.commit()
+#     book_id = cursor.lastrowid
+#     cursor.close()
+#     conn.close()
+#     return jsonify({"message": "Book added", "book_id": book_id}), 201
+
+
+# # Get Books with Authors
+# @app.route('/books', methods=['GET'])
+# def get_books():
+#     conn = get_db_connection()
+#     cursor = conn.cursor(dictionary=True)
+#     query = """
+#         SELECT books.id, books.title, authors.name as author, authors.country
+#         FROM books
+#         JOIN authors ON books.author_id = authors.id
+#     """
+#     cursor.execute(query)
+#     books = cursor.fetchall()
+#     cursor.close()
+#     conn.close()
+#     return jsonify(books)
+
+
+# if __name__ == '__main__':
+#     app.run(debug=True)
+
+
 from flask import Flask, request, jsonify
+from redis_client import redis_client
 from db import get_db_connection
 
 app = Flask(__name__)
 
-# Add Author
-@app.route('/authors', methods=['POST'])
-def add_author():
-    data = request.get_json()
+# Route: Insert data
+@app.route("/data", methods=["POST"])
+def add_data():
+    data = request.json
+    user_id = data.get("user_id")
+    value = data.get("value")
+
+    if not user_id or not value:
+        return jsonify({"error": "user_id and value required"}), 400
+
+    # Store in Redis (latest value)
+    redis_client.set(f"user:{user_id}", value)
+
+    # Append in Redis list (for history tracking)
+    redis_client.lpush(f"user:{user_id}:history", value)
+
+    # Store in MySQL permanently
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO authors (name, country) VALUES (%s, %s)", 
-                   (data['name'], data['country']))
+    cursor.execute(
+        "INSERT INTO user_data (user_id, value) VALUES (%s, %s)",
+        (user_id, value)
+    )
     conn.commit()
-    author_id = cursor.lastrowid
     cursor.close()
     conn.close()
-    return jsonify({"message": "Author added", "author_id": author_id}), 201
+
+    return jsonify({"msg": "Data stored in Redis & MySQL"}), 201
 
 
-# Add Book
-@app.route('/books', methods=['POST'])
-def add_book():
-    data = request.get_json()
+# Route: Get latest data from Redis
+@app.route("/data/<user_id>", methods=["GET"])
+def get_latest(user_id):
+    value = redis_client.get(f"user:{user_id}")
+    return jsonify({"user_id": user_id, "latest_value": value})
+
+
+# Route: Get history from MySQL
+@app.route("/data/history/<user_id>", methods=["GET"])
+def get_history(user_id):
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO books (title, author_id) VALUES (%s, %s)", 
-                   (data['title'], data['author_id']))
-    conn.commit()
-    book_id = cursor.lastrowid
+    cursor = conn.cursor()   # No dictionary=True needed
+    cursor.execute("SELECT * FROM user_data WHERE user_id=%s", (user_id,))
+    rows = cursor.fetchall()
     cursor.close()
     conn.close()
-    return jsonify({"message": "Book added", "book_id": book_id}), 201
+    return jsonify(rows)
 
 
-# Get Books with Authors
-@app.route('/books', methods=['GET'])
-def get_books():
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    query = """
-        SELECT books.id, books.title, authors.name as author, authors.country
-        FROM books
-        JOIN authors ON books.author_id = authors.id
-    """
-    cursor.execute(query)
-    books = cursor.fetchall()
-    cursor.close()
-    conn.close()
-    return jsonify(books)
 
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run(debug=True)
 
 
